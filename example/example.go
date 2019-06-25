@@ -1,4 +1,4 @@
-package apisprout
+package example
 
 import (
 	"fmt"
@@ -204,5 +204,5 @@ func OpenAPIExample(mode Mode, schema *openapi3.Schema) (interface{}, error) {
 		return example, nil
 	}
 
-	return nil, ErrNoExample
+	return nil, fmt.Errorf("no example could be provided")
 }

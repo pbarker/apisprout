@@ -1,4 +1,4 @@
-package apisprout
+package main
 
 import (
 	"context"
@@ -10,13 +10,17 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/gobwas/glob"
+	exmpl "github.com/pbarker/apisprout/example"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -63,6 +67,46 @@ func NewContentNegotiator(accept string) *ContentNegotiator {
 	return &ContentNegotiator{
 		globs: globs,
 	}
+}
+
+func main() {
+	rand.Seed(time.Now().UnixNano())
+
+	// Load configuration from file(s) if provided.
+	viper.SetConfigName("config")
+	viper.AddConfigPath("/etc/apisprout/")
+	viper.AddConfigPath("$HOME/.apisprout/")
+	viper.ReadInConfig()
+
+	// Load configuration from the environment if provided. Flags below get
+	// transformed automatically, e.g. `foo-bar` -> `SPROUT_FOO_BAR`.
+	viper.SetEnvPrefix("SPROUT")
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	viper.AutomaticEnv()
+
+	// Build the root command. This is the application's entry point.
+	cmd := filepath.Base(os.Args[0])
+	root := &cobra.Command{
+		Use:     fmt.Sprintf("%s [flags] FILE", cmd),
+		Version: GitSummary,
+		Args:    cobra.MinimumNArgs(1),
+		Run:     server,
+		Example: fmt.Sprintf("  # Basic usage\n  %s openapi.yaml\n\n  # Validate server name and use base path\n  %s --validate-server openapi.yaml\n\n  # Fetch API via HTTP with custom auth header\n  %s -H 'Authorization: abc123' http://example.com/openapi.yaml", cmd, cmd, cmd),
+	}
+
+	// Set up global options.
+	flags := root.PersistentFlags()
+
+	addParameter(flags, "port", "p", 8000, "HTTP port")
+	addParameter(flags, "validate-server", "s", false, "Check scheme/hostname/basepath against configured servers")
+	addParameter(flags, "validate-request", "", false, "Check request data structure")
+	addParameter(flags, "watch", "w", false, "Reload when input file changes")
+	addParameter(flags, "disable-cors", "", false, "Disable CORS headers")
+	addParameter(flags, "header", "H", "", "Add a custom header when fetching API")
+	addParameter(flags, "add-server", "", "", "Add a new valid server URL, use with --validate-server")
+
+	// Run the app!
+	root.Execute()
 }
 
 // Match returns true if the given mediatype string matches any of the allowed
@@ -112,7 +156,7 @@ func getTypedExample(mt *openapi3.MediaType) (interface{}, error) {
 	}
 
 	if mt.Schema != nil {
-		return OpenAPIExample(ModeResponse, mt.Schema.Value)
+		return exmpl.OpenAPIExample(exmpl.ModeResponse, mt.Schema.Value)
 	}
 	// TODO: generate data from JSON schema, if no examples available?
 
@@ -543,7 +587,7 @@ func server(cmd *cobra.Command, args []string) {
 				example := name
 
 				if header.Value.Schema != nil && header.Value.Schema.Value != nil {
-					if v, err := OpenAPIExample(ModeResponse, header.Value.Schema.Value); err == nil {
+					if v, err := exmpl.OpenAPIExample(exmpl.ModeResponse, header.Value.Schema.Value); err == nil {
 						if vs, ok := v.(string); ok {
 							example = vs
 						} else {

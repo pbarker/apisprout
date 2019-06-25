@@ -1,4 +1,4 @@
-package apisprout
+package example
 
 import (
 	"encoding/json"
